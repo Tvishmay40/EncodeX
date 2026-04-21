@@ -1,387 +1,674 @@
-import streamlit as st
-import time
-import random
 import json
+import os
+import random
+import time
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import requests
+import streamlit as st
 
-st.set_page_config(page_title="AIRA OS - Industrial AI", layout="wide", page_icon="🤖")
+st.set_page_config(page_title="AIRA OS - Industrial AI", layout="wide", page_icon="🏭")
 
-# ─── CONFIGURATION & THRESHOLDS ───
 MACHINES = [
-    {"id": "CNC-01", "name": "CNC Mill #1", "type": "CNC", "zone": "A", "bTemp": 74, "bVib": 3.4, "bPres": 43, "bRPM": 3200, "bKW": 45, "bCO2": 12, "deg": True, "x": 20, "y": 70},
-    {"id": "CNC-02", "name": "CNC Mill #2", "type": "CNC", "zone": "A", "bTemp": 67, "bVib": 2.7, "bPres": 40, "bRPM": 3100, "bKW": 42, "bCO2": 11, "deg": False, "x": 20, "y": 30},
-    {"id": "ROB-A",  "name": "Robot Arm A", "type": "Robot", "zone": "B", "bTemp": 54, "bVib": 1.1, "bPres": 27, "bRPM": 900, "bKW": 14, "bCO2": 3, "deg": False, "x": 50, "y": 70},
-    {"id": "ROB-B",  "name": "Robot Arm B", "type": "Robot", "zone": "B", "bTemp": 59, "bVib": 4.2, "bPres": 31, "bRPM": 960, "bKW": 18, "bCO2": 4, "deg": True, "x": 50, "y": 30},
-    {"id": "CONV-1", "name": "Conveyor Belt", "type": "Conveyor", "zone": "C", "bTemp": 44, "bVib": 0.9, "bPres": 14, "bRPM": 445, "bKW": 35, "bCO2": 8, "deg": False, "x": 80, "y": 50},
-    {"id": "HYDR-1", "name": "Hydraulic Press", "type": "Hydraulic", "zone": "D", "bTemp": 88, "bVib": 5.8, "bPres": 192, "bRPM": 175, "bKW": 75, "bCO2": 24, "deg": True, "x": 80, "y": 15},
+    {
+        "id": "CNC-01",
+        "name": "CNC Mill #1",
+        "type": "CNC",
+        "zone": "A",
+        "b_temp": 74,
+        "b_vib": 3.4,
+        "b_pres": 43,
+        "b_rpm": 3200,
+        "b_kw": 45,
+        "b_co2": 12,
+        "degrading": True,
+        "x": 20,
+        "y": 70,
+    },
+    {
+        "id": "CNC-02",
+        "name": "CNC Mill #2",
+        "type": "CNC",
+        "zone": "A",
+        "b_temp": 67,
+        "b_vib": 2.7,
+        "b_pres": 40,
+        "b_rpm": 3100,
+        "b_kw": 42,
+        "b_co2": 11,
+        "degrading": False,
+        "x": 20,
+        "y": 30,
+    },
+    {
+        "id": "ROB-A",
+        "name": "Robot Arm A",
+        "type": "Robot",
+        "zone": "B",
+        "b_temp": 54,
+        "b_vib": 1.1,
+        "b_pres": 27,
+        "b_rpm": 900,
+        "b_kw": 14,
+        "b_co2": 3,
+        "degrading": False,
+        "x": 50,
+        "y": 70,
+    },
+    {
+        "id": "ROB-B",
+        "name": "Robot Arm B",
+        "type": "Robot",
+        "zone": "B",
+        "b_temp": 59,
+        "b_vib": 4.2,
+        "b_pres": 31,
+        "b_rpm": 960,
+        "b_kw": 18,
+        "b_co2": 4,
+        "degrading": True,
+        "x": 50,
+        "y": 30,
+    },
+    {
+        "id": "CONV-1",
+        "name": "Conveyor Belt",
+        "type": "Conveyor",
+        "zone": "C",
+        "b_temp": 44,
+        "b_vib": 0.9,
+        "b_pres": 14,
+        "b_rpm": 445,
+        "b_kw": 35,
+        "b_co2": 8,
+        "degrading": False,
+        "x": 80,
+        "y": 50,
+    },
+    {
+        "id": "HYDR-1",
+        "name": "Hydraulic Press",
+        "type": "Hydraulic",
+        "zone": "D",
+        "b_temp": 88,
+        "b_vib": 5.8,
+        "b_pres": 192,
+        "b_rpm": 175,
+        "b_kw": 75,
+        "b_co2": 24,
+        "degrading": True,
+        "x": 80,
+        "y": 15,
+    },
 ]
 
 THRESHOLDS = {
-    "CNC": {"temp": [80,92], "vib": [5,7], "pres": [48,56], "rpm": [2600,3700]},
-    "Robot": {"temp": [65,78], "vib": [2.5,4], "pres": [35,45], "rpm": [700,1200]},
-    "Conveyor": {"temp": [55,68], "vib": [1.5,2.5], "pres": [18,24], "rpm": [380,560]},
-    "Hydraulic": {"temp": [95,110], "vib": [6,9], "pres": [210,240], "rpm": [130,260]},
+    "CNC": {"temp": (80, 92), "vib": (5, 7), "pres": (48, 56), "rpm": (2600, 3700)},
+    "Robot": {"temp": (65, 78), "vib": (2.5, 4), "pres": (35, 45), "rpm": (700, 1200)},
+    "Conveyor": {"temp": (55, 68), "vib": (1.5, 2.5), "pres": (18, 24), "rpm": (380, 560)},
+    "Hydraulic": {"temp": (95, 110), "vib": (6, 9), "pres": (210, 240), "rpm": (130, 260)},
 }
 
 ROUTES = [
-    {"id": "R-01", "from": "Warehouse A", "to": "Factory Floor", "dist": 2.3, "vehicles": 4, "bEff": 91},
-    {"id": "R-02", "from": "Port B", "to": "Warehouse A", "dist": 45, "vehicles": 2, "bEff": 78},
-    {"id": "R-03", "from": "Factory", "to": "Distribution C", "dist": 12, "vehicles": 6, "bEff": 85},
+    {"id": "R-01", "from": "Warehouse A", "to": "Factory Floor", "distance": 2.3, "vehicles": 4, "base_eff": 91},
+    {"id": "R-02", "from": "Port B", "to": "Warehouse A", "distance": 45, "vehicles": 2, "base_eff": 78},
+    {"id": "R-03", "from": "Factory", "to": "Distribution C", "distance": 12, "vehicles": 6, "base_eff": 85},
 ]
 
-# ─── INIT SIMULATION STATE ───
-if "tick" not in st.session_state:
-    st.session_state.tick = 0
-    st.session_state.sim_running = False
-    st.session_state.auto_mode = False
-    st.session_state.m_states = {}
-    st.session_state.r_states = {}
-    st.session_state.inventory = {"Bearing-702": 4, "HydraulicFluid-L": 12, "SensorMount": 0, "DriveBelt": 2}
-    st.session_state.fleet_trend = [{"t": i, "Avg Health": 85.0 + (random.random() - 0.5)*10} for i in range(15)]
-    st.session_state.history = {m["id"]: [] for m in MACHINES}
-    st.session_state.maintenance = set()
-    st.session_state.alerts = []
-    st.session_state.events = []
-    st.session_state.savings = 0
-    st.session_state.agent_result = None
 
-# ─── LOGIC FUNCTIONS ───
 def noise(base, spread):
     return base + (random.random() - 0.5) * spread
 
-def score_metric(val, warn, crit):
-    if val <= warn: return 100
-    if val >= crit: return 0
-    return max(0, int(100 - ((val - warn) / (crit - warn)) * 100))
 
-def simulate_machines():
-    new_states = {}
+def score_metric(value, warn, critical):
+    if value <= warn:
+        return 100
+    if value >= critical:
+        return 0
+    return max(0, int(100 - ((value - warn) / (critical - warn)) * 100))
+
+
+def ensure_state():
+    if "initialized" in st.session_state:
+        return
+
+    st.session_state.initialized = True
+    st.session_state.tick = 0
+    st.session_state.sim_running = False
+    st.session_state.auto_execute = False
+    st.session_state.refresh_seconds = 2.5
+    st.session_state.machine_states = {}
+    st.session_state.route_states = {}
+    st.session_state.inventory = {
+        "Bearing-702": 4,
+        "HydraulicFluid-L": 12,
+        "SensorMount": 0,
+        "DriveBelt": 2,
+    }
+    st.session_state.maintenance_set = set()
+    st.session_state.alerts = []
+    st.session_state.execution_events = []
+    st.session_state.tickets = []
+    st.session_state.savings_usd = 0
+    st.session_state.fleet_trend = []
+    st.session_state.route_trend = []
+    st.session_state.health_history = {machine["id"]: [] for machine in MACHINES}
+    st.session_state.mas_result = None
+    st.session_state.mas_logs = []
+
+
+def machine_by_id(machine_id):
+    return next((m for m in MACHINES if m["id"] == machine_id), None)
+
+
+def simulate_tick():
     tick = st.session_state.tick
-    
-    for m in MACHINES:
-        mid = m["id"]
-        if mid in st.session_state.maintenance:
-            new_states[mid] = {
-                "temp": round(noise(m["bTemp"]-3, 0.5), 1),
-                "vib": round(m["bVib"] * 0.3, 2),
-                "pres": m["bPres"],
+    new_states = {}
+
+    for machine in MACHINES:
+        machine_id = machine["id"]
+        if machine_id in st.session_state.maintenance_set:
+            state = {
+                "temp": round(noise(machine["b_temp"] - 3, 0.5), 1),
+                "vib": round(max(0.1, machine["b_vib"] * 0.3), 2),
+                "pres": round(noise(machine["b_pres"], 1.0), 1),
                 "rpm": 0,
-                "kw": 0.5,
+                "kw": 0.6,
                 "co2": 0.0,
-                "health": 100, # Fake health while maintaining
-                "status": "MAINTENANCE"
+                "health": 100,
+                "status": "MAINTENANCE",
             }
         else:
-            deg = tick if m["deg"] else 0
-            t = THRESHOLDS[m["type"]]
-            temp = round(max(m["bTemp"] - 5, m["bTemp"] + 0.08 * deg * 0.04 * 100 + noise(0, 2.5)), 1)
-            vib = round(max(0.1, m["bVib"] + 0.04 * deg * 0.04 * 100 + noise(0, 0.5)), 2)
-            pres = round(noise(m["bPres"], 6 if m["type"]=="Hydraulic" else 2), 1)
-            rpm = round(noise(m["bRPM"], m["bRPM"]*0.04), 0)
-            kw = round(noise(m["bKW"] + (deg * 0.05), 1.5), 1)
-            co2 = round(noise(m["bCO2"] + (deg * 0.01), 0.5), 2)
-            
-            ts = score_metric(temp, t["temp"][0], t["temp"][1])
-            vs = score_metric(vib, t["vib"][0], t["vib"][1])
-            ps = score_metric(pres, t["pres"][0], t["pres"][1])
-            rs = score_metric(rpm, t["rpm"][0], t["rpm"][1])
-            hlth = int(ts*0.3 + vs*0.35 + ps*0.2 + rs*0.15)
-            
-            st_val = "NORMAL"
-            if hlth < 50: st_val = "CRITICAL"
-            elif hlth < 75: st_val = "WARNING"
-            
-            new_states[mid] = {
-                "temp": temp, "vib": vib, "pres": pres, "rpm": rpm, "kw": kw, "co2": co2, "health": hlth, "status": st_val
+            degradation = tick if machine["degrading"] else 0
+            limits = THRESHOLDS[machine["type"]]
+
+            temp = round(max(machine["b_temp"] - 5, machine["b_temp"] + 0.35 * degradation + noise(0, 2.5)), 1)
+            vib = round(max(0.1, machine["b_vib"] + 0.14 * degradation + noise(0, 0.5)), 2)
+            pres = round(noise(machine["b_pres"], 6 if machine["type"] == "Hydraulic" else 2), 1)
+            rpm = round(noise(machine["b_rpm"], machine["b_rpm"] * 0.04), 0)
+            kw = round(noise(machine["b_kw"] + degradation * 0.08, 1.7), 1)
+            co2 = round(noise(machine["b_co2"] + degradation * 0.02, 0.6), 2)
+
+            temp_score = score_metric(temp, limits["temp"][0], limits["temp"][1])
+            vib_score = score_metric(vib, limits["vib"][0], limits["vib"][1])
+            pres_score = score_metric(pres, limits["pres"][0], limits["pres"][1])
+            rpm_score = score_metric(rpm, limits["rpm"][0], limits["rpm"][1])
+            health = int(temp_score * 0.30 + vib_score * 0.35 + pres_score * 0.20 + rpm_score * 0.15)
+
+            if health < 50:
+                status = "CRITICAL"
+            elif health < 75:
+                status = "WARNING"
+            else:
+                status = "NORMAL"
+
+            state = {
+                "temp": temp,
+                "vib": vib,
+                "pres": pres,
+                "rpm": rpm,
+                "kw": kw,
+                "co2": co2,
+                "health": health,
+                "status": status,
             }
-            
-            # Simple alerting
-            old_st = st.session_state.m_states.get(mid, {}).get("status", "NORMAL")
-            if st_val != "NORMAL" and st_val != old_st and st_val != "MAINTENANCE":
-                st.session_state.alerts.insert(0, f"[{time.strftime('%H:%M:%S')}] {mid} dropped to {st_val} ({hlth}% Health)")
-    
-    st.session_state.m_states = new_states
-    
-    # Store history
-    for mid, state in new_states.items():
-        st.session_state.history[mid].append({"t": tick, "health": state["health"]})
-        if len(st.session_state.history[mid]) > 30:
-            st.session_state.history[mid].pop(0)
-            
-    # Routes
-    new_r = {}
-    for r in ROUTES:
-        new_r[r["id"]] = {
-            "eff": max(30, min(99, r["bEff"] + noise(0, 8))),
-            "delay": max(0, noise(12, 15))
+
+        old_status = st.session_state.machine_states.get(machine_id, {}).get("status", "NORMAL")
+        if state["status"] != "NORMAL" and state["status"] != old_status:
+            st.session_state.alerts.insert(
+                0,
+                f"[{time.strftime('%H:%M:%S')}] {machine_id} changed to {state['status']} ({state['health']}% health)",
+            )
+
+        new_states[machine_id] = state
+        st.session_state.health_history[machine_id].append({"tick": tick, "health": state["health"]})
+        st.session_state.health_history[machine_id] = st.session_state.health_history[machine_id][-40:]
+
+    route_states = {}
+    for route in ROUTES:
+        route_states[route["id"]] = {
+            "efficiency": round(max(35, min(99, route["base_eff"] + noise(0, 8))), 1),
+            "delay_min": round(max(0, noise(11, 16)), 1),
         }
-    st.session_state.r_states = new_r
 
-def run_multi_agent():
-    # Simulated Multi-Agent Response bridging Diagnostics and Logistics
-    critical_machine = None
-    for mid, s in st.session_state.m_states.items():
-        if s["status"] == "CRITICAL" or MACHINES[[m["id"] for m in MACHINES].index(mid)]["deg"]:
-            critical_machine = mid
-            break
-            
-    low_part = None
-    for k,v in st.session_state.inventory.items():
-        if v <= 2: 
-            low_part = k
-            break
-            
-    st.session_state.agent_result = {
-        "summary": f"Multi-agent consensus achieved. Diagnostic confirmed anomalies on {critical_machine or 'fleet'}. Logistics analyzed WMS inventory.",
-        "status": "CRITICAL" if critical_machine else "WARNING",
-        "actions": []
-    }
-    
-    if critical_machine:
-        st.session_state.agent_result["actions"].append({
-            "id": f"ACT-{int(time.time())}",
-            "type": "MAINTENANCE",
-            "target": critical_machine,
-            "title": "Autonomous Repair Protocol",
-            "reason": "Vibration harmonics threshold exceeded, linked with high KW draw.",
-            "confidence": 0.92,
-            "impact": "+15% OEE, saves $24k downtime.",
-            "thoughtProcess": [
-                "> Diagnostic Agent: Thermal & Vibration anomalies localized to spindle.",
-                "> Logistics Agent: Part Available. Engineer on deck.",
-                "> Orchestrator Agent: Confidence exceeds 0.85 Auto-Execute threshold. Initiating."
-            ]
-        })
-        
+    st.session_state.machine_states = new_states
+    st.session_state.route_states = route_states
+
+    values = list(new_states.values())
+    avg_health = round(sum(v["health"] for v in values) / len(values), 2)
+    avg_route_eff = round(sum(v["efficiency"] for v in route_states.values()) / len(route_states), 2)
+
+    st.session_state.fleet_trend.append({"tick": tick, "avg_health": avg_health})
+    st.session_state.fleet_trend = st.session_state.fleet_trend[-30:]
+
+    st.session_state.route_trend.append({"tick": tick, "avg_efficiency": avg_route_eff})
+    st.session_state.route_trend = st.session_state.route_trend[-30:]
+
+
+def call_anthropic_or_fallback(prompt):
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return None, "No ANTHROPIC_API_KEY found. Used local MAS simulation."
+
+    try:
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-3-5-sonnet-latest",
+                "max_tokens": 700,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=20,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        text_blocks = payload.get("content", [])
+        raw_text = "\n".join(block.get("text", "") for block in text_blocks if block.get("type") == "text")
+        return raw_text.strip(), "Anthropic API response received."
+    except Exception as exc:
+        return None, f"Anthropic API call failed ({exc}). Used local MAS simulation."
+
+
+def fallback_agent_plan(machine_id, low_part):
+    actions = []
+    if machine_id:
+        actions.append(
+            {
+                "id": f"ACT-{int(time.time())}",
+                "type": "MAINTENANCE",
+                "target": machine_id,
+                "title": "Autonomous Repair Protocol",
+                "reason": "Thermal and vibration anomaly indicates spindle degradation.",
+                "confidence": 0.92,
+                "impact": "+15% OEE, avoids $24k downtime.",
+                "log": [
+                    "Diagnostic Agent: Confirmed spike in vibration harmonics and thermal drift.",
+                    "Logistics Agent: Spare spindle and engineer are available in maintenance bay.",
+                    "Orchestrator Agent: Confidence > 0.85. Recommend immediate intervention.",
+                ],
+            }
+        )
+
     if low_part:
-        st.session_state.agent_result["actions"].append({
-            "id": f"ACT-{int(time.time())+1}",
-            "type": "ORDER_PARTS",
-            "target": low_part,
-            "title": f"Expedite Supply",
-            "reason": f"WMS Stockout predicted for {low_part}",
-            "confidence": 0.88,
-            "impact": "Restores supply chain buffer.",
-            "thoughtProcess": [
-                "> Logistics Agent: Scanned WMS. Deficit recorded.",
-                "> Orchestrator Agent: Expediting drone resupply."
-            ]
-        })
+        actions.append(
+            {
+                "id": f"ACT-{int(time.time()) + 1}",
+                "type": "ORDER_PARTS",
+                "target": low_part,
+                "title": "Expedite Replenishment",
+                "reason": f"Stockout risk detected for {low_part}.",
+                "confidence": 0.88,
+                "impact": "Restores inventory buffer and route reliability.",
+                "log": [
+                    "Logistics Agent: WMS shows low inventory and demand growth on critical route.",
+                    "Orchestrator Agent: Dispatching fast supplier route for replenishment.",
+                ],
+            }
+        )
 
-# Initialize first tick
+    status = "CRITICAL" if machine_id else "WARNING"
+    summary = (
+        f"Consensus completed. Diagnostics focused on {machine_id or 'fleet stability'}, "
+        "and Logistics validated inventory and route constraints."
+    )
+    return {"status": status, "summary": summary, "actions": actions}
+
+
+def run_multi_agent_analysis(user_prompt=""):
+    machine_states = st.session_state.machine_states
+    critical_ids = [mid for mid, state in machine_states.items() if state["status"] == "CRITICAL"]
+    warning_ids = [mid for mid, state in machine_states.items() if state["status"] == "WARNING"]
+    low_parts = [name for name, qty in st.session_state.inventory.items() if qty <= 2]
+
+    target_machine = critical_ids[0] if critical_ids else (warning_ids[0] if warning_ids else None)
+    low_part = low_parts[0] if low_parts else None
+
+    llm_prompt = (
+        "You are an industrial multi-agent orchestrator with three agents: Diagnostic, Logistics, Orchestrator.\n"
+        "Given this state, propose a JSON object with fields: summary, status, actions[] where each action has "
+        "id, type, target, title, reason, confidence, impact, log[].\n"
+        f"Machine states: {json.dumps(machine_states)}\n"
+        f"Inventory: {json.dumps(st.session_state.inventory)}\n"
+        f"Route states: {json.dumps(st.session_state.route_states)}\n"
+        f"User request: {user_prompt or 'Optimize OEE and avoid downtime'}\n"
+        "Return valid JSON only."
+    )
+
+    llm_text, llm_status = call_anthropic_or_fallback(llm_prompt)
+    if llm_text:
+        try:
+            parsed = json.loads(llm_text)
+            plan = {
+                "status": parsed.get("status", "WARNING"),
+                "summary": parsed.get("summary", "Agent consensus completed."),
+                "actions": parsed.get("actions", []),
+            }
+        except Exception:
+            plan = fallback_agent_plan(target_machine, low_part)
+            llm_status = "Anthropic output was not valid JSON. Used local MAS simulation."
+    else:
+        plan = fallback_agent_plan(target_machine, low_part)
+
+    st.session_state.mas_result = plan
+    st.session_state.mas_logs.append({
+        "timestamp": time.strftime("%H:%M:%S"),
+        "llm_status": llm_status,
+        "summary": plan["summary"],
+    })
+
+
+def execute_action(action):
+    action_id = action.get("id", f"ACT-{int(time.time())}")
+    action_type = action.get("type")
+    target = action.get("target")
+
+    if action_type == "MAINTENANCE" and target:
+        st.session_state.maintenance_set.add(target)
+        st.session_state.savings_usd += 24000
+        st.session_state.tickets.append(
+            {
+                "ticket": f"T-{int(time.time())}",
+                "type": "MAINTENANCE",
+                "target": target,
+                "status": "OPEN",
+                "created": time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+        )
+
+    if action_type == "ORDER_PARTS" and target:
+        st.session_state.inventory[target] = st.session_state.inventory.get(target, 0) + 10
+        st.session_state.tickets.append(
+            {
+                "ticket": f"T-{int(time.time())}",
+                "type": "SUPPLY",
+                "target": target,
+                "status": "ORDERED",
+                "created": time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+        )
+
+    st.session_state.execution_events.append(f"{action_id}: Executed {action.get('title', action_type)}")
+
+
+ensure_state()
 if st.session_state.tick == 0:
-    simulate_machines()
+    simulate_tick()
 
-# ─── SIDEBAR SIMULATION CONTROLS ───
+
 with st.sidebar:
-    st.header("⚙️ Simulation Controls")
-    
-    col1, col2 = st.columns(2)
-    if col1.button("Tick 1 Step ⏩"):
+    st.header("Simulation Controls")
+    tick_col, auto_col = st.columns(2)
+    if tick_col.button("Tick Forward"):
         st.session_state.tick += 1
-        simulate_machines()
-    
-    # Auto loop toggle
-    auto = col2.toggle("Auto-Simulate", value=st.session_state.sim_running)
+        simulate_tick()
+
+    auto = auto_col.toggle("Auto Refresh", value=st.session_state.sim_running)
     if auto != st.session_state.sim_running:
         st.session_state.sim_running = auto
         st.rerun()
 
-    st.subheader("🤖 Agent Controls")
-    st.session_state.auto_mode = st.toggle("MAS Auto-Execute Mode", value=st.session_state.auto_mode)
-    
-    if st.button("Trigger MAS Analysis"):
-        run_multi_agent()
-        
-    if st.button("Clear History"):
+    st.session_state.refresh_seconds = st.slider(
+        "Refresh (seconds)",
+        min_value=1.0,
+        max_value=6.0,
+        value=float(st.session_state.refresh_seconds),
+        step=0.5,
+    )
+
+    st.subheader("Agent Controls")
+    st.session_state.auto_execute = st.toggle("Auto Execute High Confidence", value=st.session_state.auto_execute)
+    prompt_text = st.text_area("MAS Prompt", value="Prioritize safety, uptime, and route efficiency.", height=90)
+
+    if st.button("Run MAS Analysis", type="primary"):
+        run_multi_agent_analysis(prompt_text)
+
+    if st.button("Clear Activity"):
         st.session_state.alerts = []
-        st.session_state.events = []
+        st.session_state.execution_events = []
+        st.session_state.mas_logs = []
         st.rerun()
 
-# ─── TOP HEADER ───
-st.title("AIRA OS [Python/Streamlit Edition]")
-st.markdown("### Multi-Agent Digital Twin Architecture")
+st.title("AIRA OS - Python Streamlit Edition")
+st.caption("Industrial digital twin, live simulation, and multi-agent operations in a pure Python stack.")
 
-# Calculated Metrics
-all_states = list(st.session_state.m_states.values())
-crit = sum(1 for s in all_states if s["status"] == "CRITICAL")
-warn = sum(1 for s in all_states if s["status"] == "WARNING")
-maint = sum(1 for s in all_states if s["status"] == "MAINTENANCE")
+all_states = list(st.session_state.machine_states.values())
+critical_count = sum(1 for state in all_states if state["status"] == "CRITICAL")
+warning_count = sum(1 for state in all_states if state["status"] == "WARNING")
+maintenance_count = sum(1 for state in all_states if state["status"] == "MAINTENANCE")
 
-valid = [s["health"] for s in all_states if s["health"] >= 0]
-avg_h = sum(valid)/len(valid) if valid else 100
-tot_kw = sum(s.get("kw", 0) for s in all_states)
-tot_co2 = sum(s.get("co2", 0) for s in all_states)
+avg_health = round(sum(state["health"] for state in all_states) / len(all_states), 2) if all_states else 100
+total_kw = round(sum(state.get("kw", 0.0) for state in all_states), 2)
+total_co2 = round(sum(state.get("co2", 0.0) for state in all_states), 2)
+avg_route_eff = (
+    round(sum(route["efficiency"] for route in st.session_state.route_states.values()) / len(st.session_state.route_states), 2)
+    if st.session_state.route_states
+    else 100
+)
 
-avg_rt = sum(r["eff"] for r in st.session_state.r_states.values()) / len(ROUTES) if ROUTES else 100
-oee = int( ((len(MACHINES)-maint-crit)/len(MACHINES)) * (avg_h/100) * (avg_rt/100) * 100 )
+available_ratio = (len(MACHINES) - maintenance_count - critical_count) / len(MACHINES)
+oee = int(max(0, available_ratio * (avg_health / 100.0) * (avg_route_eff / 100.0) * 100))
 
-# Add to trend
-if st.session_state.tick > 0:
-    st.session_state.fleet_trend.append({"t": st.session_state.tick, "Avg Health": avg_h})
-    if len(st.session_state.fleet_trend) > 20: st.session_state.fleet_trend.pop(0)
+k1, k2, k3, k4 = st.columns(4)
+k1.metric("OEE", f"{oee}%", f"{critical_count} critical")
+k2.metric("Energy Draw", f"{total_kw} kW", f"CO2 {total_co2} kg/h", delta_color="inverse")
+k3.metric("Logistics Efficiency", f"{avg_route_eff}%", f"{warning_count} warning machines")
+k4.metric("Autonomy Savings", f"${st.session_state.savings_usd:,}", f"{len(st.session_state.execution_events)} events")
 
-mc1, mc2, mc3, mc4 = st.columns(4)
-mc1.metric("OEE Score", f"{oee}%", f"{crit} Critical Constraints", delta_color="inverse")
-mc2.metric("Total Energy Draw", f"{round(tot_kw,1)} kW", f"{round(tot_co2,1)} kg/h CO2", delta_color="inverse")
-mc3.metric("Logistics Sync", f"{round(avg_rt, 1)}%", "WMS Efficiency")
-mc4.metric("Autonomy Savings", f"${st.session_state.savings}", f"{len(st.session_state.events)} events executed")
+tab_overview, tab_twin, tab_logistics, tab_mas = st.tabs(
+    ["Overview & KPIs", "Digital Twin", "Logistics & Tickets", "Multi-Agent System"]
+)
 
-st.divider()
+with tab_overview:
+    left_col, right_col = st.columns([2, 1])
 
-# ─── TABS ───
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "🏭 Digital Twin", "🚚 Logistics & WMS", "🧠 Multi-Agent System"])
-
-with tab1:
-    c1, c2 = st.columns([2, 1])
-    
-    with c1:
+    with left_col:
         st.subheader("Fleet Health Trend")
-        df_trend = pd.DataFrame(st.session_state.fleet_trend)
-        fig = px.area(df_trend, x="t", y="Avg Health", template="plotly_dark", color_discrete_sequence=["#3B82F6"])
-        fig.update_layout(height=250, margin=dict(l=0, r=0, t=0, b=0))
-        st.plotly_chart(fig, use_container_width=True)
-        
-    with c2:
-        st.subheader("Activity Feed")
-        for ev in reversed(st.session_state.events[-5:]):
-            st.info(ev)
-        for al in st.session_state.alerts[:5]:
-            st.warning(al)
+        fleet_df = pd.DataFrame(st.session_state.fleet_trend)
+        if not fleet_df.empty:
+            health_fig = px.area(
+                fleet_df,
+                x="tick",
+                y="avg_health",
+                title="Average Fleet Health",
+                color_discrete_sequence=["#0ea5e9"],
+            )
+            health_fig.update_layout(height=300, margin=dict(l=10, r=10, t=40, b=10))
+            st.plotly_chart(health_fig, use_container_width=True)
 
-with tab2:
-    st.subheader("Live Spatial Tracking")
-    # Build Plotly scatter map
-    points = []
-    colors = []
-    texts = []
-    
-    for m in MACHINES:
-        mid = m["id"]
-        state = st.session_state.m_states.get(mid, {})
-        st_val = state.get("status", "NORMAL")
-        
-        points.append({"x": m["x"], "y": 100 - m["y"]})  # Invert Y for standard map feel
-        
-        if st_val == "CRITICAL": c = "red"
-        elif st_val == "WARNING": c = "orange"
-        elif st_val == "MAINTENANCE": c = "blue"
-        else: c = "green"
-        colors.append(c)
-        
-        txt = f"<b>{mid}</b><br>{state.get('health',100)}% Health<br>{state.get('kw',0)} kW"
-        if st_val == "MAINTENANCE": txt += "<br>REPAIRING 👷‍♂️"
-        texts.append(txt)
+        st.subheader("Route Efficiency")
+        route_df = pd.DataFrame(
+            [
+                {
+                    "Route": route_id,
+                    "Efficiency": values["efficiency"],
+                    "Delay (min)": values["delay_min"],
+                }
+                for route_id, values in st.session_state.route_states.items()
+            ]
+        )
+        route_fig = px.bar(route_df, x="Route", y="Efficiency", color="Delay (min)", title="Route Performance Snapshot")
+        route_fig.update_layout(height=300, margin=dict(l=10, r=10, t=40, b=10))
+        st.plotly_chart(route_fig, use_container_width=True)
 
-    df_map = pd.DataFrame(points)
-    fig_map = go.Figure()
-    
-    fig_map.add_trace(go.Scatter(
-        x=df_map["x"], y=df_map["y"], 
-        mode="markers+text",
-        marker=dict(size=40, color=colors, line=dict(width=2, color="white")),
-        text=[m["id"] for m in MACHINES],
-        textposition="top center",
-        hovertext=texts, hoverinfo="text"
-    ))
-    
-    fig_map.update_layout(
-        template="plotly_dark", height=500,
-        xaxis=dict(range=[0, 100], showgrid=False, zeroline=False, showticklabels=False),
-        yaxis=dict(range=[0, 100], showgrid=False, zeroline=False, showticklabels=False),
-        margin=dict(l=0,r=0,t=0,b=0),
-        plot_bgcolor="rgba(15, 23, 42, 0.5)"
+    with right_col:
+        st.subheader("Alerts")
+        for alert in st.session_state.alerts[:7]:
+            st.warning(alert)
+
+        st.subheader("Execution Feed")
+        for event in reversed(st.session_state.execution_events[-7:]):
+            st.info(event)
+
+with tab_twin:
+    st.subheader("Factory Digital Twin")
+    twin_points = []
+    for machine in MACHINES:
+        machine_id = machine["id"]
+        state = st.session_state.machine_states[machine_id]
+        twin_points.append(
+            {
+                "Machine": machine_id,
+                "Name": machine["name"],
+                "X": machine["x"],
+                "Y": 100 - machine["y"],
+                "Status": state["status"],
+                "Health": state["health"],
+                "kW": state["kw"],
+                "Temp": state["temp"],
+                "Vibration": state["vib"],
+            }
+        )
+    twin_df = pd.DataFrame(twin_points)
+
+    twin_fig = px.scatter(
+        twin_df,
+        x="X",
+        y="Y",
+        text="Machine",
+        color="Status",
+        size="Health",
+        size_max=44,
+        hover_data=["Name", "Health", "kW", "Temp", "Vibration"],
+        color_discrete_map={
+            "NORMAL": "#22c55e",
+            "WARNING": "#f59e0b",
+            "CRITICAL": "#ef4444",
+            "MAINTENANCE": "#3b82f6",
+        },
     )
-    
-    # Add maintenance bay
-    fig_map.add_shape(type="rect", x0=45, y0=0, x1=55, y1=10, line=dict(color="blue", width=2), fillcolor="rgba(0,0,255,0.1)")
-    fig_map.add_annotation(x=50, y=5, text="Maint. Bay", showarrow=False, font=dict(color="blue"))
-    
-    st.plotly_chart(fig_map, use_container_width=True)
-    
-    # Machine Data table below
-    st.subheader("Telemetry Data")
-    df_tel = []
-    for m in MACHINES:
-        s = st.session_state.m_states[m["id"]]
-        df_tel.append({
-            "Machine ID": m["id"], "Zone": m["zone"], "Status": s["status"], 
-            "Health (%)": s["health"], "Temp (°C)": s["temp"], "Vibrations": s["vib"],
-            "Energy (kW)": s["kw"], "Emissions (CO2)": s["co2"]
-        })
-    st.dataframe(pd.DataFrame(df_tel), use_container_width=True)
+    twin_fig.update_traces(textposition="top center")
+    twin_fig.update_layout(
+        height=560,
+        margin=dict(l=0, r=0, t=20, b=0),
+        xaxis=dict(range=[0, 100], showticklabels=False, title=""),
+        yaxis=dict(range=[0, 100], showticklabels=False, title=""),
+    )
+    twin_fig.add_shape(type="rect", x0=45, y0=0, x1=55, y1=10, line=dict(color="#3b82f6", width=2))
+    twin_fig.add_annotation(x=50, y=5, text="Maintenance Bay", showarrow=False, font=dict(color="#3b82f6"))
+    st.plotly_chart(twin_fig, use_container_width=True)
 
-with tab3:
-    col_wms, col_log = st.columns(2)
-    with col_wms:
+    telemetry_df = pd.DataFrame(
+        [
+            {
+                "Machine": machine["id"],
+                "Zone": machine["zone"],
+                "Status": st.session_state.machine_states[machine["id"]]["status"],
+                "Health": st.session_state.machine_states[machine["id"]]["health"],
+                "Temp": st.session_state.machine_states[machine["id"]]["temp"],
+                "Vibration": st.session_state.machine_states[machine["id"]]["vib"],
+                "Energy kW": st.session_state.machine_states[machine["id"]]["kw"],
+                "CO2": st.session_state.machine_states[machine["id"]]["co2"],
+            }
+            for machine in MACHINES
+        ]
+    )
+    st.dataframe(telemetry_df, use_container_width=True)
+
+with tab_logistics:
+    inv_col, route_col = st.columns(2)
+    with inv_col:
         st.subheader("WMS Inventory")
-        inv_df = [{"Part": k, "Qty": v, "Status": "CRITICAL" if v<=2 else "OK"} for k,v in st.session_state.inventory.items()]
-        st.dataframe(pd.DataFrame(inv_df), use_container_width=True)
-        
-    with col_log:
-        st.subheader("Active Supply Routes")
-        rout_df = [{"Route": r["id"], "Efficiency %": int(st.session_state.r_states[r["id"]]["eff"]), "Delay (min)": int(st.session_state.r_states[r["id"]]["delay"])} for r in ROUTES]
-        st.dataframe(pd.DataFrame(rout_df), use_container_width=True)
+        inv_df = pd.DataFrame(
+            [
+                {"Part": name, "Qty": qty, "Status": "CRITICAL" if qty <= 2 else "OK"}
+                for name, qty in st.session_state.inventory.items()
+            ]
+        )
+        st.dataframe(inv_df, use_container_width=True)
 
-with tab4:
-    st.subheader("Swarm Intelligence (Multi-Agent Consensus)")
-    
-    if st.session_state.agent_result:
-        ares = st.session_state.agent_result
-        if ares["status"] == "CRITICAL":
-            st.error(ares["summary"])
-        else:
-            st.warning(ares["summary"])
-            
-        for act in ares.get("actions", []):
-            with st.expander(f"⚡ {act['priority'] if 'priority' in act else 'HIGH'} PRIORITY: {act['title']} (Confidence: {act['confidence']*100}%)", expanded=True):
-                st.markdown(f"**Target:** {act['target']}  |  **Impact:** {act['impact']}")
-                
-                # Render the thought process log
-                st.markdown("##### Agentic Negotiation Log")
-                for th in act.get("thoughtProcess", []):
-                    color = "blue" if "Diagnostic" in th else "green" if "Logistics" in th else "orange"
-                    st.markdown(f"<span style='color:{color}'>{th}</span>", unsafe_allow_html=True)
-                    
-                st.divider()
-                
-                executed = act["id"] in [e.split(":")[0] for e in st.session_state.events]
-                if executed:
-                    st.success("Action Executed Successfully")
-                else:
-                    if st.button("Approve Execution", key=act["id"]):
-                        st.session_state.events.append(f"{act['id']}: MAS dispatched {act['title']}")
-                        
-                        if act["type"] == "MAINTENANCE":
-                            st.session_state.maintenance.add(act["target"])
-                            st.session_state.savings += 24000
-                        elif act["type"] == "ORDER_PARTS":
-                            st.session_state.inventory[act["target"]] += 10
-                            
-                        st.rerun()
+    with route_col:
+        st.subheader("Supply Route Status")
+        route_status_df = pd.DataFrame(
+            [
+                {
+                    "Route": route["id"],
+                    "From": route["from"],
+                    "To": route["to"],
+                    "Efficiency %": st.session_state.route_states[route["id"]]["efficiency"],
+                    "Delay (min)": st.session_state.route_states[route["id"]]["delay_min"],
+                }
+                for route in ROUTES
+            ]
+        )
+        st.dataframe(route_status_df, use_container_width=True)
+
+    st.subheader("Ticketing")
+    tickets_df = pd.DataFrame(st.session_state.tickets)
+    if tickets_df.empty:
+        st.info("No tickets yet. Run MAS analysis and approve an action to create tickets.")
     else:
-        st.info("System is monitoring. Trigger MAS Analysis in the sidebar, or wait for an Autonomous event.")
+        st.dataframe(tickets_df, use_container_width=True)
 
-# Auto-Loop 
+with tab_mas:
+    st.subheader("Multi-Agent Negotiation")
+
+    for log in st.session_state.mas_logs[-4:]:
+        with st.chat_message("assistant"):
+            st.write(f"{log['timestamp']} - {log['summary']}")
+            st.caption(log["llm_status"])
+
+    if st.session_state.mas_result:
+        result = st.session_state.mas_result
+        if result["status"] == "CRITICAL":
+            st.error(result["summary"])
+        else:
+            st.warning(result["summary"])
+
+        for action in result.get("actions", []):
+            title = action.get("title", "Action")
+            conf = float(action.get("confidence", 0)) * 100
+            with st.expander(f"{title} ({conf:.1f}% confidence)", expanded=True):
+                st.json(
+                    {
+                        "id": action.get("id"),
+                        "type": action.get("type"),
+                        "target": action.get("target"),
+                        "reason": action.get("reason"),
+                        "impact": action.get("impact"),
+                    }
+                )
+
+                st.markdown("Agent Conversation")
+                for line in action.get("log", []):
+                    with st.chat_message("assistant"):
+                        st.write(line)
+
+                already_executed = any(
+                    event.startswith(str(action.get("id", ""))) for event in st.session_state.execution_events
+                )
+                if already_executed:
+                    st.success("Action already executed")
+                elif st.button("Approve Execution", key=f"approve-{action.get('id', title)}"):
+                    execute_action(action)
+                    st.rerun()
+
+        st.markdown("Final JSON Action Plan")
+        st.code(json.dumps(result, indent=2), language="json")
+    else:
+        st.info("No MAS output yet. Use Run MAS Analysis in the sidebar.")
+
+
+if st.session_state.auto_execute and st.session_state.mas_result:
+    for action in st.session_state.mas_result.get("actions", []):
+        if float(action.get("confidence", 0)) >= 0.90:
+            is_executed = any(
+                event.startswith(str(action.get("id", ""))) for event in st.session_state.execution_events
+            )
+            if not is_executed:
+                execute_action(action)
+
+
 if st.session_state.sim_running:
-    time.sleep(2.5) # Sleep for 2.5s and tick continuously
+    time.sleep(st.session_state.refresh_seconds)
     st.session_state.tick += 1
-    simulate_machines()
-    
-    # Optional Autonomous MAS trigger
-    if st.session_state.auto_mode and st.session_state.tick % 5 == 0:
-        run_multi_agent()
-        # Automatically execute high confidence actions
-        if st.session_state.agent_result:
-            for act in st.session_state.agent_result.get("actions", []):
-                if act.get("confidence", 0) >= 0.85:
-                    if act["type"] == "MAINTENANCE":
-                        st.session_state.maintenance.add(act["target"])
-                        st.session_state.savings += 24000
-                    elif act["type"] == "ORDER_PARTS":
-                        st.session_state.inventory[act["target"]] += 10
-                    st.session_state.events.append(f"🤖 AUTO-EXECUTED: {act['title']}")
-    
+    simulate_tick()
+    if st.session_state.tick % 5 == 0:
+        run_multi_agent_analysis("Background autonomous scan for safety and uptime.")
     st.rerun()
