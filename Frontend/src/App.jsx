@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import MachineGrid from './MachineGrid';
+import Machinegrid from './MachineGrid';
 import ControlHub from './ControlHub';
 
 export default function App() {
