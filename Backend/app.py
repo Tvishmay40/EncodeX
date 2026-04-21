@@ -5,8 +5,36 @@ import json
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from typing import List, Optional
+
+# --- GOOGLE GEN AI API ---
+from google import genai
+from google.genai import types
+from pydantic import BaseModel, Field
 
 st.set_page_config(page_title="AIRA OS - Industrial AI", layout="wide", page_icon="🤖")
+
+# ─── PYDANTIC SCHEMAS FOR GEMINI RESPONSES ───
+class PrescriptiveRepair(BaseModel):
+    rootCause: str = Field(description="The engineering root cause of the failure")
+    partsNeeded: List[str] = Field(description="List of required parts from the WMS inventory")
+
+class Action(BaseModel):
+    id: str = Field(description="Unique ID for the action, like ACT-1")
+    type: str = Field(description="One of: MAINTENANCE, ORDER_PARTS, ECO_MODE, SHUTDOWN")
+    target: str = Field(description="The Machine ID or Inventory Part ID")
+    title: str = Field(description="Short concise title of the action")
+    reason: str = Field(description="Why this action is needed")
+    confidence: float = Field(description="Confidence from 0.0 to 1.0. If >= 0.85, it is auto-eligible")
+    impact: str = Field(description="What will happen after this is executed (e.g. saves $24k)")
+    thoughtProcess: List[str] = Field(description="Logs from the multi-agent consensus. Start lines with 'Diagnostic Agent:', 'Logistics Agent:', or 'Orchestrator Agent:'")
+    prescriptiveRepair: Optional[PrescriptiveRepair] = Field(None)
+
+class MultiAgentOutput(BaseModel):
+    summary: str = Field(description="Overall consensus summary")
+    overallStatus: str = Field(description="One of: NORMAL, WARNING, CRITICAL")
+    riskScore: int = Field(description="0 to 100")
+    actions: List[Action]
 
 # ─── CONFIGURATION & THRESHOLDS ───
 MACHINES = [
@@ -70,7 +98,7 @@ def simulate_machines():
                 "rpm": 0,
                 "kw": 0.5,
                 "co2": 0.0,
-                "health": 100, # Fake health while maintaining
+                "health": 100,
                 "status": "MAINTENANCE"
             }
         else:
@@ -97,20 +125,17 @@ def simulate_machines():
                 "temp": temp, "vib": vib, "pres": pres, "rpm": rpm, "kw": kw, "co2": co2, "health": hlth, "status": st_val
             }
             
-            # Simple alerting
             old_st = st.session_state.m_states.get(mid, {}).get("status", "NORMAL")
             if st_val != "NORMAL" and st_val != old_st and st_val != "MAINTENANCE":
                 st.session_state.alerts.insert(0, f"[{time.strftime('%H:%M:%S')}] {mid} dropped to {st_val} ({hlth}% Health)")
     
     st.session_state.m_states = new_states
     
-    # Store history
     for mid, state in new_states.items():
         st.session_state.history[mid].append({"t": tick, "health": state["health"]})
         if len(st.session_state.history[mid]) > 30:
             st.session_state.history[mid].pop(0)
             
-    # Routes
     new_r = {}
     for r in ROUTES:
         new_r[r["id"]] = {
@@ -119,54 +144,75 @@ def simulate_machines():
         }
     st.session_state.r_states = new_r
 
-def run_multi_agent():
-    # Simulated Multi-Agent Response bridging Diagnostics and Logistics
+def run_multi_agent(api_key):
+    # Context Generation
+    context = {
+        "machines": st.session_state.m_states,
+        "inventory": st.session_state.inventory,
+        "routes": st.session_state.r_states
+    }
+    
+    system_prompt = """You are the Orchestrator Agent of an Industrial AI System.
+You oversee two sub-agents: Diagnostic Agent (analyzes sensor telemetry and power) and Logistics Agent (analyzes inventory and route delays).
+Given the following real-time JSON context of the factory, generate a multi-agent prescriptive response. Include energy efficiency recommendations.
+You MUST output strictly in the requested JSON schema."""
+
+    user_prompt = f"Real-time Factory Context:\n{json.dumps(context)}"
+
+    if not api_key:
+        print("Using simulated fallback...")
+        _run_simulated_agent()
+        return
+
+    try:
+        # GOOGLE GEMINI INTEGRATION
+        client = genai.Client(api_key=api_key)
+        
+        with st.spinner("🧠 Diagnostic & Logistics Agents forming consensus via Gemini 2.5..."):
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=[system_prompt, user_prompt],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=MultiAgentOutput,
+                    temperature=0.2,
+                ),
+            )
+            
+        st.session_state.agent_result = json.loads(response.text)
+
+    except Exception as e:
+        print(f"Gemini API Error: {e}")
+        st.error(f"Google Gemini Error: {e}")
+        _run_simulated_agent()
+
+
+def _run_simulated_agent():
+    # Simulated Fallback Response
     critical_machine = None
     for mid, s in st.session_state.m_states.items():
         if s["status"] == "CRITICAL" or MACHINES[[m["id"] for m in MACHINES].index(mid)]["deg"]:
-            critical_machine = mid
-            break
+            critical_machine = mid; break
             
     low_part = None
     for k,v in st.session_state.inventory.items():
-        if v <= 2: 
-            low_part = k
-            break
+        if v <= 2: low_part = k; break
             
     st.session_state.agent_result = {
-        "summary": f"Multi-agent consensus achieved. Diagnostic confirmed anomalies on {critical_machine or 'fleet'}. Logistics analyzed WMS inventory.",
-        "status": "CRITICAL" if critical_machine else "WARNING",
+        "summary": f"MOCKED FALLBACK: Diagnostic confirmed anomalies on {critical_machine or 'fleet'}. Logistics analyzed WMS inventory.",
+        "overallStatus": "CRITICAL" if critical_machine else "WARNING",
+        "riskScore": 88 if critical_machine else 45,
         "actions": []
     }
-    
     if critical_machine:
         st.session_state.agent_result["actions"].append({
             "id": f"ACT-{int(time.time())}",
-            "type": "MAINTENANCE",
-            "target": critical_machine,
-            "title": "Autonomous Repair Protocol",
-            "reason": "Vibration harmonics threshold exceeded, linked with high KW draw.",
-            "confidence": 0.92,
+            "type": "MAINTENANCE", "target": critical_machine, "title": "Autonomous Repair Protocol",
+            "reason": "Vibration harmonics threshold exceeded.", "confidence": 0.92,
             "impact": "+15% OEE, saves $24k downtime.",
             "thoughtProcess": [
-                "> Diagnostic Agent: Thermal & Vibration anomalies localized to spindle.",
-                "> Logistics Agent: Part Available. Engineer on deck.",
-                "> Orchestrator Agent: Confidence exceeds 0.85 Auto-Execute threshold. Initiating."
-            ]
-        })
-        
-    if low_part:
-        st.session_state.agent_result["actions"].append({
-            "id": f"ACT-{int(time.time())+1}",
-            "type": "ORDER_PARTS",
-            "target": low_part,
-            "title": f"Expedite Supply",
-            "reason": f"WMS Stockout predicted for {low_part}",
-            "confidence": 0.88,
-            "impact": "Restores supply chain buffer.",
-            "thoughtProcess": [
-                "> Logistics Agent: Scanned WMS. Deficit recorded.",
-                "> Orchestrator Agent: Expediting drone resupply."
+                "Diagnostic Agent: Thermal & Vibration anomalies localized to spindle.",
+                "Orchestrator Agent: Confidence exceeds 0.85 Auto-Execute threshold. Initiating."
             ]
         })
 
@@ -176,14 +222,17 @@ if st.session_state.tick == 0:
 
 # ─── SIDEBAR SIMULATION CONTROLS ───
 with st.sidebar:
+    st.header("🔑 API Configurations")
+    api_key = st.text_input("Google AI Studio (Gemini) API Key", type="password", value="AIzaSyA9NXoxmUlb_9dGuB813ktxlZKqdtS9z1Y", placeholder="AIzaSy...")
+    st.markdown("[Get API Key free](https://aistudio.google.com/app/apikey)")
+    st.divider()
+
     st.header("⚙️ Simulation Controls")
-    
     col1, col2 = st.columns(2)
     if col1.button("Tick 1 Step ⏩"):
         st.session_state.tick += 1
         simulate_machines()
     
-    # Auto loop toggle
     auto = col2.toggle("Auto-Simulate", value=st.session_state.sim_running)
     if auto != st.session_state.sim_running:
         st.session_state.sim_running = auto
@@ -192,8 +241,8 @@ with st.sidebar:
     st.subheader("🤖 Agent Controls")
     st.session_state.auto_mode = st.toggle("MAS Auto-Execute Mode", value=st.session_state.auto_mode)
     
-    if st.button("Trigger MAS Analysis"):
-        run_multi_agent()
+    if st.button("Trigger Google Gemini MAS"):
+        run_multi_agent(api_key)
         
     if st.button("Clear History"):
         st.session_state.alerts = []
@@ -201,8 +250,8 @@ with st.sidebar:
         st.rerun()
 
 # ─── TOP HEADER ───
-st.title("AIRA OS [Python/Streamlit Edition]")
-st.markdown("### Multi-Agent Digital Twin Architecture")
+st.title("AIRA OS [Google Gemini Edition]")
+st.markdown("### Python Streamlit Digital Twin, Powered by `gemini-2.5-flash`")
 
 # Calculated Metrics
 all_states = list(st.session_state.m_states.values())
@@ -218,7 +267,6 @@ tot_co2 = sum(s.get("co2", 0) for s in all_states)
 avg_rt = sum(r["eff"] for r in st.session_state.r_states.values()) / len(ROUTES) if ROUTES else 100
 oee = int( ((len(MACHINES)-maint-crit)/len(MACHINES)) * (avg_h/100) * (avg_rt/100) * 100 )
 
-# Add to trend
 if st.session_state.tick > 0:
     st.session_state.fleet_trend.append({"t": st.session_state.tick, "Avg Health": avg_h})
     if len(st.session_state.fleet_trend) > 20: st.session_state.fleet_trend.pop(0)
@@ -232,17 +280,16 @@ mc4.metric("Autonomy Savings", f"${st.session_state.savings}", f"{len(st.session
 st.divider()
 
 # ─── TABS ───
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "🏭 Digital Twin", "🚚 Logistics & WMS", "🧠 Multi-Agent System"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "🏭 Digital Twin", "🚚 Logistics & WMS", "🧠 Multi-Agent System (Gemini)"])
 
 with tab1:
     c1, c2 = st.columns([2, 1])
-    
     with c1:
         st.subheader("Fleet Health Trend")
         df_trend = pd.DataFrame(st.session_state.fleet_trend)
         fig = px.area(df_trend, x="t", y="Avg Health", template="plotly_dark", color_discrete_sequence=["#3B82F6"])
         fig.update_layout(height=250, margin=dict(l=0, r=0, t=0, b=0))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         
     with c2:
         st.subheader("Activity Feed")
@@ -253,17 +300,12 @@ with tab1:
 
 with tab2:
     st.subheader("Live Spatial Tracking")
-    # Build Plotly scatter map
-    points = []
-    colors = []
-    texts = []
-    
+    points, colors, texts = [], [], []
     for m in MACHINES:
         mid = m["id"]
         state = st.session_state.m_states.get(mid, {})
         st_val = state.get("status", "NORMAL")
-        
-        points.append({"x": m["x"], "y": 100 - m["y"]})  # Invert Y for standard map feel
+        points.append({"x": m["x"], "y": 100 - m["y"]})
         
         if st_val == "CRITICAL": c = "red"
         elif st_val == "WARNING": c = "orange"
@@ -277,13 +319,10 @@ with tab2:
 
     df_map = pd.DataFrame(points)
     fig_map = go.Figure()
-    
     fig_map.add_trace(go.Scatter(
-        x=df_map["x"], y=df_map["y"], 
-        mode="markers+text",
+        x=df_map["x"], y=df_map["y"], mode="markers+text",
         marker=dict(size=40, color=colors, line=dict(width=2, color="white")),
-        text=[m["id"] for m in MACHINES],
-        textposition="top center",
+        text=[m["id"] for m in MACHINES], textposition="top center",
         hovertext=texts, hoverinfo="text"
     ))
     
@@ -291,17 +330,14 @@ with tab2:
         template="plotly_dark", height=500,
         xaxis=dict(range=[0, 100], showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(range=[0, 100], showgrid=False, zeroline=False, showticklabels=False),
-        margin=dict(l=0,r=0,t=0,b=0),
-        plot_bgcolor="rgba(15, 23, 42, 0.5)"
+        margin=dict(l=0,r=0,t=0,b=0), plot_bgcolor="rgba(15, 23, 42, 0.5)"
     )
     
-    # Add maintenance bay
     fig_map.add_shape(type="rect", x0=45, y0=0, x1=55, y1=10, line=dict(color="blue", width=2), fillcolor="rgba(0,0,255,0.1)")
     fig_map.add_annotation(x=50, y=5, text="Maint. Bay", showarrow=False, font=dict(color="blue"))
     
-    st.plotly_chart(fig_map, use_container_width=True)
+    st.plotly_chart(fig_map, width="stretch")
     
-    # Machine Data table below
     st.subheader("Telemetry Data")
     df_tel = []
     for m in MACHINES:
@@ -311,77 +347,83 @@ with tab2:
             "Health (%)": s["health"], "Temp (°C)": s["temp"], "Vibrations": s["vib"],
             "Energy (kW)": s["kw"], "Emissions (CO2)": s["co2"]
         })
-    st.dataframe(pd.DataFrame(df_tel), use_container_width=True)
+    st.dataframe(pd.DataFrame(df_tel), width="stretch")
 
 with tab3:
     col_wms, col_log = st.columns(2)
     with col_wms:
         st.subheader("WMS Inventory")
         inv_df = [{"Part": k, "Qty": v, "Status": "CRITICAL" if v<=2 else "OK"} for k,v in st.session_state.inventory.items()]
-        st.dataframe(pd.DataFrame(inv_df), use_container_width=True)
+        st.dataframe(pd.DataFrame(inv_df), width="stretch")
         
     with col_log:
         st.subheader("Active Supply Routes")
         rout_df = [{"Route": r["id"], "Efficiency %": int(st.session_state.r_states[r["id"]]["eff"]), "Delay (min)": int(st.session_state.r_states[r["id"]]["delay"])} for r in ROUTES]
-        st.dataframe(pd.DataFrame(rout_df), use_container_width=True)
+        st.dataframe(pd.DataFrame(rout_df), width="stretch")
 
 with tab4:
-    st.subheader("Swarm Intelligence (Multi-Agent Consensus)")
+    col_title, col_logo = st.columns([4,1])
+    col_title.subheader("Swarm Intelligence (Powered by Gemini)")
     
     if st.session_state.agent_result:
         ares = st.session_state.agent_result
-        if ares["status"] == "CRITICAL":
-            st.error(ares["summary"])
+        overall = ares.get('overallStatus', 'WARNING')
+        
+        if overall == "CRITICAL":
+            st.error(ares.get('summary', ''))
         else:
-            st.warning(ares["summary"])
+            st.warning(ares.get('summary', ''))
             
         for act in ares.get("actions", []):
-            with st.expander(f"⚡ {act['priority'] if 'priority' in act else 'HIGH'} PRIORITY: {act['title']} (Confidence: {act['confidence']*100}%)", expanded=True):
-                st.markdown(f"**Target:** {act['target']}  |  **Impact:** {act['impact']}")
+            with st.expander(f"✨ {act.get('type', 'ACTION')}: {act.get('title', '')} (Confidence: {float(act.get('confidence',0))*100}%)", expanded=True):
+                st.markdown(f"**Target:** {act.get('target', '')}  |  **Impact:** {act.get('impact', '')}")
                 
-                # Render the thought process log
                 st.markdown("##### Agentic Negotiation Log")
                 for th in act.get("thoughtProcess", []):
                     color = "blue" if "Diagnostic" in th else "green" if "Logistics" in th else "orange"
-                    st.markdown(f"<span style='color:{color}'>{th}</span>", unsafe_allow_html=True)
+                    st.markdown(f"<span style='color:{color}; font-family: monospace;'>{th}</span>", unsafe_allow_html=True)
+                    
+                if act.get("prescriptiveRepair"):
+                    st.info(f"**Root Cause Analysis:** {act['prescriptiveRepair'].get('rootCause', '')}\n\n**Parts Needed:** {', '.join(act['prescriptiveRepair'].get('partsNeeded', []))}")
                     
                 st.divider()
                 
-                executed = act["id"] in [e.split(":")[0] for e in st.session_state.events]
+                executed = act.get("id", "") in [e.split(":")[0] for e in st.session_state.events]
                 if executed:
                     st.success("Action Executed Successfully")
                 else:
-                    if st.button("Approve Execution", key=act["id"]):
-                        st.session_state.events.append(f"{act['id']}: MAS dispatched {act['title']}")
-                        
-                        if act["type"] == "MAINTENANCE":
-                            st.session_state.maintenance.add(act["target"])
+                    if st.button("Approve Execution", key=act.get("id", str(random.random()))):
+                        st.session_state.events.append(f"{act.get('id', '')}: MAS dispatched {act.get('title', '')}")
+                        if act.get("type") in ["MAINTENANCE", "ECO_MODE"]:
+                            st.session_state.maintenance.add(act.get("target"))
                             st.session_state.savings += 24000
-                        elif act["type"] == "ORDER_PARTS":
-                            st.session_state.inventory[act["target"]] += 10
+                        elif act.get("type") == "ORDER_PARTS":
+                            targ = act.get("target")
+                            if targ in st.session_state.inventory:
+                                st.session_state.inventory[targ] += 10
                             
                         st.rerun()
     else:
-        st.info("System is monitoring. Trigger MAS Analysis in the sidebar, or wait for an Autonomous event.")
+        st.info("System is monitoring. Enter your Gemini API Key in the sidebar and trigger an Analysis.")
 
 # Auto-Loop 
 if st.session_state.sim_running:
-    time.sleep(2.5) # Sleep for 2.5s and tick continuously
+    time.sleep(2.5)
     st.session_state.tick += 1
     simulate_machines()
     
-    # Optional Autonomous MAS trigger
     if st.session_state.auto_mode and st.session_state.tick % 5 == 0:
-        run_multi_agent()
-        # Automatically execute high confidence actions
+        run_multi_agent(api_key)
         if st.session_state.agent_result:
             for act in st.session_state.agent_result.get("actions", []):
                 if act.get("confidence", 0) >= 0.85:
-                    if act["type"] == "MAINTENANCE":
-                        st.session_state.maintenance.add(act["target"])
+                    if act.get("type") in ["MAINTENANCE", "ECO_MODE"]:
+                        st.session_state.maintenance.add(act.get("target"))
                         st.session_state.savings += 24000
-                    elif act["type"] == "ORDER_PARTS":
-                        st.session_state.inventory[act["target"]] += 10
-                    st.session_state.events.append(f"🤖 AUTO-EXECUTED: {act['title']}")
+                    elif act.get("type") == "ORDER_PARTS":
+                        targ = act.get("target")
+                        if targ in st.session_state.inventory:
+                            st.session_state.inventory[targ] += 10
+                    st.session_state.events.append(f"🤖 AUTO-EXECUTED: {act.get('title')}")
     
     st.rerun()
