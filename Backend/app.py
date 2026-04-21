@@ -87,7 +87,7 @@ def score_metric(val, warn, crit):
 def simulate_machines():
     new_states = {}
     tick = st.session_state.tick
-    
+
     for m in MACHINES:
         mid = m["id"]
         if mid in st.session_state.maintenance:
@@ -223,7 +223,7 @@ if st.session_state.tick == 0:
 # ─── SIDEBAR SIMULATION CONTROLS ───
 with st.sidebar:
     st.header("🔑 API Configurations")
-    api_key = st.text_input("Google AI Studio (Gemini) API Key", type="password", value="AIzaSyA9NXoxmUlb_9dGuB813ktxlZKqdtS9z1Y", placeholder="AIzaSy...")
+    api_key = st.text_input("Google AI Studio (Gemini) API Key", type="password", placeholder="AIzaSy...")
     st.markdown("[Get API Key free](https://aistudio.google.com/app/apikey)")
     st.divider()
 
