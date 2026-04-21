@@ -5,16 +5,15 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# 1. Copy requirements from the current directory (.)
+# Copy requirements and install
 COPY requirements.txt .
-
-# 2. Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 3. Copy everything else in the current folder (app.py, etc.)
+# Copy all backend files (app.py, etc.)
 COPY . .
 
+# FastAPI typically runs on 8080 or 10000 on Render
 EXPOSE 8080
 
-# 4. Use relative path for app.py
-CMD ["streamlit", "run", "app.py", "--server.port=8080", "--server.address=0.0.0.0", "--server.headless=true"]
+# 'app:app' refers to filename (app.py) : FastAPI instance name (app = FastAPI())
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]
