@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import Machinegrid from './MachineGrid';
+import Machinegrid from './Machinegrid';
 import ControlHub from './ControlHub';
 
 export default function App() {
@@ -27,7 +27,7 @@ export default function App() {
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden">
       <div className="flex-1 p-6 border-r border-slate-800">
-        <MachineGrid telemetry={telemetry} />
+        <Machinegrid telemetry={telemetry} />
       </div>
       <div className="w-96 p-6">
         <ControlHub aiLogs={aiLogs} onAction={handleAction} />
