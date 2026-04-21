@@ -1,256 +1,310 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect } from "react";
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Inject Google Font once ──────────────────────────────────────────────────
+let _fontInjected = false;
+function useFont() {
+  useEffect(() => {
+    if (_fontInjected) return;
+    _fontInjected = true;
+    const l = document.createElement("link");
+    l.rel = "stylesheet";
+    l.href = "https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap";
+    document.head.appendChild(l);
+  }, []);
+}
 
-const STATUS_CONFIG = {
-  active:    { label: "ACTIVE",     dot: "bg-emerald-400", text: "text-emerald-400", glow: "shadow-[0_0_8px_#34d399]" },
-  paused:    { label: "PAUSED",     dot: "bg-amber-400",   text: "text-amber-400",   glow: "shadow-[0_0_8px_#fbbf24]" },
-  emergency: { label: "EMERGENCY",  dot: "bg-red-400",     text: "text-red-400",     glow: "shadow-[0_0_8px_#f87171]" },
+// ─── Config ───────────────────────────────────────────────────────────────────
+const STATUS_CFG = {
+  active:    { label: "ACTIVE",    color: "#34d399" },
+  paused:    { label: "PAUSED",    color: "#fbbf24" },
+  emergency: { label: "EMERGENCY", color: "#f87171" },
+};
+const ACCENTS = {
+  cnc_1:     "#00ffe5",
+  printer_1: "#bf5fff",
+  lathe_1:   "#ffb800",
+  robot_1:   "#00aaff",
 };
 
-const MACHINE_ICONS = {
-  CNC:         "⚙",
-  "3D Printer": "◈",
-  Lathe:       "◎",
-  "Robotic Arm": "⟁",
-};
+// ─── Machine Visualizers ──────────────────────────────────────────────────────
 
-const NEON_ACCENTS = {
-  cnc_1:     { border: "#00ffe5", label: "#00ffe5", shadow: "0 0 12px #00ffe580" },
-  printer_1: { border: "#bf5fff", label: "#bf5fff", shadow: "0 0 12px #bf5fff80" },
-  lathe_1:   { border: "#ffb800", label: "#ffb800", shadow: "0 0 12px #ffb80080" },
-  robot_1:   { border: "#00aaff", label: "#00aaff", shadow: "0 0 12px #00aaff80" },
-};
-
-// ─── 2D Movement Visualizer ─────────────────────────────────────────────────
-
-function PositionViz({ position, color, status }) {
-  const { x = 0, y = 0 } = position || {};
-  // Clamp 0-100 → fit within 6–94 px of a 100-unit viewBox
-  const cx = 6 + (Math.min(100, Math.max(0, x)) / 100) * 88;
-  const cy = 6 + (Math.min(100, Math.max(0, y)) / 100) * 88;
-  const isEmergency = status === "emergency";
-
+/** CNC: spindle fixed center, work bed slides L/R */
+function CNCViz({ position, color }) {
+  const x = Math.min(100, Math.max(0, position?.x ?? 50));
+  const bedOffset = -28 + (x / 100) * 56;
   return (
-    <svg
-      viewBox="0 0 100 100"
-      className="w-full h-full"
-      style={{ background: "rgba(0,0,0,0.35)", borderRadius: "6px" }}
-    >
-      {/* Grid lines */}
-      {[25, 50, 75].map((v) => (
-        <React.Fragment key={v}>
-          <line x1={v} y1={0} x2={v} y2={100} stroke="#ffffff0d" strokeWidth="0.5" />
-          <line x1={0} y1={v} x2={100} y2={v} stroke="#ffffff0d" strokeWidth="0.5" />
-        </React.Fragment>
-      ))}
-      {/* Crosshair at origin */}
-      <line x1="50" y1="0" x2="50" y2="100" stroke="#ffffff14" strokeWidth="0.8" />
-      <line x1="0" y1="50" x2="100" y2="50" stroke="#ffffff14" strokeWidth="0.8" />
-
-      {/* Trail ring */}
-      <circle cx={cx} cy={cy} r="10" fill="none" stroke={color} strokeWidth="0.5" opacity="0.3" />
-
-      {/* Glow halo */}
-      <circle cx={cx} cy={cy} r="6" fill={color} opacity="0.15" />
-
-      {/* Main position dot */}
-      <circle
-        cx={cx}
-        cy={cy}
-        r="4"
-        fill={isEmergency ? "#f87171" : color}
-        style={{ filter: `drop-shadow(0 0 4px ${isEmergency ? "#f87171" : color})` }}
-      />
-
-      {/* Coord labels */}
-      <text x="3" y="97" fontSize="7" fill="#ffffff30" fontFamily="monospace">
-        {`X:${Math.round(x)} Y:${Math.round(y)}`}
-      </text>
+    <svg viewBox="0 0 120 68" width="100%" height="100%" style={{ display: "block" }}>
+      <rect x="5" y="8" width="110" height="54" rx="3" fill="none" stroke="#1e3a5f" strokeWidth="1.2" />
+      <rect x="10" y="12" width="100" height="4" rx="1" fill="#1e3a5f" />
+      {/* Spindle — fixed */}
+      <rect x="53" y="12" width="14" height="18" rx="2" fill={color} opacity="0.82" />
+      <rect x="58" y="30" width="4" height="8"  rx="1" fill={color} />
+      <polygon points="60,38 57,44 63,44" fill={color} opacity="0.65" />
+      {/* Moving bed */}
+      <g transform={`translate(${bedOffset},0)`}>
+        <rect x="18" y="48" width="84" height="12" rx="2" fill="#0f2744" stroke={color} strokeWidth="0.8" />
+        <rect x="40" y="45" width="40" height="8"  rx="1" fill="#162032" stroke={color} strokeWidth="0.6" strokeDasharray="3 2" />
+      </g>
+      <line x1="10" y1="60" x2="110" y2="60" stroke="#1e3a5f" strokeWidth="1.4" />
+      <text x="60" y="67" textAnchor="middle" fontSize="6" fill="#475569" fontFamily="monospace">{`BED X:${Math.round(x)}`}</text>
     </svg>
   );
 }
 
-// ─── Stat Pill ───────────────────────────────────────────────────────────────
-
-function StatPill({ icon, value, unit, color }) {
+/** 3D Printer: extruder head moves along top rail */
+function PrinterViz({ position, color }) {
+  const x = Math.min(100, Math.max(0, position?.x ?? 50));
+  const headX = 16 + (x / 100) * 86;
   return (
-    <div
-      className="flex items-center gap-1 px-2 py-1 rounded text-xs font-mono"
-      style={{
-        background: "rgba(255,255,255,0.04)",
-        border: `1px solid ${color}40`,
-        color: color,
-      }}
-    >
-      <span className="opacity-60">{icon}</span>
-      <span className="font-bold">{value}</span>
-      <span className="opacity-50 text-[10px]">{unit}</span>
+    <svg viewBox="0 0 120 68" width="100%" height="100%" style={{ display: "block" }}>
+      <rect x="8"   y="6"  width="5"  height="58" rx="1" fill="#1e3a5f" />
+      <rect x="107" y="6"  width="5"  height="58" rx="1" fill="#1e3a5f" />
+      <rect x="8"   y="6"  width="104" height="5" rx="1" fill="#1e3a5f" />
+      <line x1="13" y1="20" x2="107" y2="20" stroke="#334155" strokeWidth="1.5" />
+      {/* Extruder carriage */}
+      <rect x={headX - 8} y="14" width="16" height="13" rx="2" fill={color} opacity="0.82" />
+      <rect x={headX - 2} y="27" width="4"  height="7"  rx="1" fill={color} />
+      <polygon points={`${headX},34 ${headX - 3},40 ${headX + 3},40`} fill={color} opacity="0.65" />
+      {/* Partial print on bed */}
+      <rect x="14" y="53" width="92" height="7" rx="2" fill="#0f2744" stroke={color} strokeWidth="0.8" />
+      <rect x="42" y="44" width="36" height="10" rx="1" fill="#162032" stroke={color} strokeWidth="0.6" />
+      <rect x="48" y="41" width="24" height="4"  rx="1" fill="#162032" stroke={color} strokeWidth="0.5" strokeDasharray="2 2" />
+      <text x="60" y="67" textAnchor="middle" fontSize="6" fill="#475569" fontFamily="monospace">{`HEAD X:${Math.round(x)}`}</text>
+    </svg>
+  );
+}
+
+/** Lathe: tool-head carriage slides toward/away from rotating workpiece */
+function LatheViz({ position, color }) {
+  const x = Math.min(100, Math.max(0, position?.x ?? 50));
+  const toolX = 88 - (x / 100) * 48; // x=100 → close, x=0 → far right
+  return (
+    <svg viewBox="0 0 120 68" width="100%" height="100%" style={{ display: "block" }}>
+      {/* Bed */}
+      <rect x="5" y="50" width="110" height="8" rx="2" fill="#1e3a5f" />
+      {/* Headstock box */}
+      <rect x="7" y="26" width="20" height="26" rx="2" fill="#0f2744" stroke="#334155" strokeWidth="1" />
+      {/* Chuck */}
+      <circle cx="27" cy="37" r="12" fill="#0f2744" stroke={color} strokeWidth="1.1" />
+      {[0, 90, 180, 270].map((deg, i) => {
+        const rad = (deg * Math.PI) / 180;
+        const jx = 27 + Math.cos(rad) * 8, jy = 37 + Math.sin(rad) * 8;
+        return <rect key={i} x={jx - 2.5} y={jy - 2.5} width="5" height="5" rx="1" fill={color} opacity="0.7" transform={`rotate(${deg},${jx},${jy})`} />;
+      })}
+      {/* Workpiece */}
+      <rect x="27" y="31" width="55" height="12" rx="1" fill="#162032" stroke={color} strokeWidth="0.7" />
+      {/* Tailstock */}
+      <rect x="92" y="32" width="16" height="20" rx="2" fill="#0f2744" stroke="#334155" strokeWidth="1" />
+      <rect x="96" y="35" width="8"  height="4"  rx="1" fill="#334155" />
+      {/* Carriage rail */}
+      <line x1="27" y1="50" x2="92" y2="50" stroke="#334155" strokeWidth="1.2" />
+      {/* Sliding tool post */}
+      <rect x={toolX - 4} y="41" width="12" height="10" rx="1" fill="#0f2744" stroke={color} strokeWidth="0.8" />
+      <polygon points={`${toolX - 4},45 ${toolX - 10},38 ${toolX - 4},38`} fill={color} opacity="0.82" />
+      <text x="60" y="67" textAnchor="middle" fontSize="6" fill="#475569" fontFamily="monospace">{`TOOL X:${Math.round(x)}`}</text>
+    </svg>
+  );
+}
+
+/** Robotic Arm: 2-segment IK arm driven by x/y */
+function RobotArmViz({ position, color }) {
+  const x = Math.min(100, Math.max(0, position?.x ?? 50));
+  const y = Math.min(100, Math.max(0, position?.y ?? 50));
+
+  const bx = 60, by = 60;
+  const L1 = 22, L2 = 18;
+  const shoulderDeg = -65 + (x / 100) * 130;
+  const elbowRelDeg = -85 + (y / 100) * 105;
+  const toR = (d) => (d * Math.PI) / 180;
+  const sR = toR(shoulderDeg - 90);
+  const eR = toR(shoulderDeg - 90 + elbowRelDeg);
+  const ex = bx + L1 * Math.cos(sR), ey = by + L1 * Math.sin(sR);
+  const wx = ex + L2 * Math.cos(eR), wy = ey + L2 * Math.sin(eR);
+
+  return (
+    <svg viewBox="0 0 120 68" width="100%" height="100%" style={{ display: "block" }}>
+      <rect x="5" y="62" width="110" height="4" rx="1" fill="#1e3a5f" />
+      <rect x="50" y="54" width="20" height="10" rx="2" fill="#0f2744" stroke="#334155" strokeWidth="1" />
+      {/* Arm segments */}
+      <line x1={bx} y1={by} x2={ex} y2={ey} stroke={color} strokeWidth="4" strokeLinecap="round" />
+      <line x1={ex} y1={ey} x2={wx} y2={wy} stroke={color} strokeWidth="2.8" strokeLinecap="round" opacity="0.82" />
+      {/* Joints */}
+      <circle cx={bx} cy={by} r="5"   fill="#1e293b" stroke={color} strokeWidth="1.2" />
+      <circle cx={ex} cy={ey} r="3.8" fill="#1e293b" stroke={color} strokeWidth="1.1" />
+      {/* Gripper */}
+      <circle cx={wx} cy={wy} r="2.8" fill={color} opacity="0.9" />
+      <line x1={wx - 5} y1={wy} x2={wx + 5} y2={wy} stroke={color} strokeWidth="1.5" strokeLinecap="round" />
+      <line x1={wx - 5} y1={wy - 3} x2={wx - 5} y2={wy + 3} stroke={color} strokeWidth="1.2" strokeLinecap="round" />
+      <line x1={wx + 5} y1={wy - 3} x2={wx + 5} y2={wy + 3} stroke={color} strokeWidth="1.2" strokeLinecap="round" />
+      <text x="60" y="67" textAnchor="middle" fontSize="6" fill="#475569" fontFamily="monospace">{`X:${Math.round(x)} Y:${Math.round(y)}`}</text>
+    </svg>
+  );
+}
+
+const VIZ = { CNC: CNCViz, "3D Printer": PrinterViz, Lathe: LatheViz, "Robotic Arm": RobotArmViz };
+
+// ─── Stat Chip ────────────────────────────────────────────────────────────────
+function Chip({ label, value, unit, color }) {
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 3,
+      padding: "2px 6px", borderRadius: 4,
+      background: "rgba(255,255,255,0.04)",
+      border: `1px solid ${color}33`, color,
+      fontSize: 10, fontFamily: "inherit",
+    }}>
+      <span style={{ opacity: 0.5, fontSize: 9 }}>{label}</span>
+      <span style={{ fontWeight: "bold" }}>{value}</span>
+      <span style={{ opacity: 0.38, fontSize: 9 }}>{unit}</span>
     </div>
   );
 }
 
-// ─── Machine Card ────────────────────────────────────────────────────────────
-
+// ─── Machine Card ─────────────────────────────────────────────────────────────
 function MachineCard({ machineKey, data }) {
-  const accent = NEON_ACCENTS[machineKey] || { border: "#00ffe5", label: "#00ffe5", shadow: "none" };
-  const statusCfg = STATUS_CONFIG[data.status] || STATUS_CONFIG.paused;
-  const isEmergency = data.status === "emergency";
-  const icon = MACHINE_ICONS[data.type] || "◉";
+  const accent = ACCENTS[machineKey] ?? "#00ffe5";
+  const st     = STATUS_CFG[data.status] ?? STATUS_CFG.paused;
+  const isE    = data.status === "emergency";
+  const Viz    = VIZ[data.type] ?? CNCViz;
 
   return (
     <div
-      className={`relative flex flex-col gap-2 p-3 rounded-lg overflow-hidden transition-all duration-300 ${
-        isEmergency ? "animate-pulse bg-red-900/40" : ""
-      }`}
+      className={isE ? "mg-emerg" : ""}
       style={{
-        background: isEmergency
-          ? undefined
-          : "linear-gradient(145deg, rgba(15,23,42,0.95) 0%, rgba(15,23,42,0.7) 100%)",
-        border: `1px solid ${isEmergency ? "#ef4444" : accent.border}`,
-        boxShadow: isEmergency ? "0 0 20px #ef444480" : accent.shadow,
-        minHeight: "0",
+        position: "relative",
+        display: "flex", flexDirection: "column", gap: 6,
+        padding: "9px 9px 7px",
+        borderRadius: 8, overflow: "hidden",
+        border: `1px solid ${isE ? "#ef4444" : accent}`,
+        boxSizing: "border-box", minHeight: 0,
+        background: isE ? undefined
+          : "linear-gradient(145deg,rgba(15,23,42,0.97) 0%,rgba(15,23,42,0.78) 100%)",
       }}
     >
-      {/* Scanline overlay */}
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.03]"
-        style={{
-          backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 2px, #fff 2px, #fff 3px)",
-          backgroundSize: "100% 3px",
-        }}
-      />
+      {/* Scanline texture */}
+      <div style={{
+        position: "absolute", inset: 0, pointerEvents: "none", borderRadius: 8,
+        backgroundImage: "repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(255,255,255,0.014) 2px,rgba(255,255,255,0.014) 3px)",
+      }} />
 
       {/* Header */}
-      <div className="flex items-center justify-between z-10">
-        <div className="flex items-center gap-2">
-          <span
-            className="text-xl leading-none"
-            style={{ color: accent.label, filter: `drop-shadow(0 0 4px ${accent.border})` }}
-          >
-            {icon}
-          </span>
-          <div>
-            <div
-              className="text-xs font-bold tracking-[0.2em] uppercase font-mono"
-              style={{ color: accent.label }}
-            >
-              {data.type}
-            </div>
-            <div className="text-[10px] text-slate-500 font-mono uppercase tracking-widest">
-              {machineKey}
-            </div>
-          </div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative", zIndex: 1, flexShrink: 0 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: "bold", letterSpacing: "0.18em", textTransform: "uppercase", color: accent }}>{data.type}</div>
+          <div style={{ fontSize: 9,  letterSpacing: "0.12em", textTransform: "uppercase", color: "#475569" }}>{machineKey}</div>
         </div>
-
-        {/* Status badge */}
-        <div
-          className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-widest font-mono ${statusCfg.text}`}
-          style={{ background: "rgba(0,0,0,0.4)", border: `1px solid currentColor` }}
-        >
-          <span
-            className={`inline-block w-1.5 h-1.5 rounded-full ${statusCfg.dot} ${
-              isEmergency ? "animate-ping" : "animate-pulse"
-            }`}
-          />
-          {statusCfg.label}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 5,
+          padding: "2px 7px", borderRadius: 20,
+          border: `1px solid ${st.color}`, background: "rgba(0,0,0,0.45)",
+          fontSize: 9, fontWeight: "bold", letterSpacing: "0.1em", color: st.color, flexShrink: 0,
+        }}>
+          <span className={isE ? "mg-ping" : "mg-pulse"} style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: st.color }} />
+          {st.label}
         </div>
       </div>
 
-      {/* Position visualizer */}
-      <div className="z-10 flex-1" style={{ minHeight: "80px", maxHeight: "120px" }}>
-        <PositionViz position={data.position} color={accent.border} status={data.status} />
+      {/* Visualizer */}
+      <div style={{
+        flex: 1, minHeight: 0,
+        background: "rgba(0,0,0,0.30)", borderRadius: 5,
+        overflow: "hidden", position: "relative", zIndex: 1,
+        display: "flex", alignItems: "stretch",
+      }}>
+        <Viz position={data.position} color={accent} status={data.status} />
       </div>
 
-      {/* Stats row */}
-      <div className="flex flex-wrap gap-1.5 z-10">
-        <StatPill icon="🌡" value={data.temp_c ?? "—"} unit="°C" color="#ff6b6b" />
-        <StatPill icon="⚡" value={data.power_w ?? "—"} unit="W" color="#ffd93d" />
-        <StatPill icon="〜" value={data.vibration_hz ?? "—"} unit="Hz" color="#6bcb77" />
+      {/* Stats */}
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", position: "relative", zIndex: 1, flexShrink: 0 }}>
+        <Chip label="TEMP" value={data.temp_c       ?? "—"} unit="°C" color="#ff6b6b" />
+        <Chip label="PWR"  value={data.power_w      ?? "—"} unit="W"  color="#ffd93d" />
+        <Chip label="VIB"  value={data.vibration_hz ?? "—"} unit="Hz" color="#6bcb77" />
       </div>
     </div>
   );
 }
 
-// ─── MachineGrid (main export) ───────────────────────────────────────────────
-
+// ─── MachineGrid — Main Export ────────────────────────────────────────────────
 export default function MachineGrid({ telemetry }) {
-  // Fallback demo data so the component is never blank during dev
-  const data = telemetry || {
+  useFont();
+
+  const data = telemetry ?? {
     global_emergency: false,
     machines: {
-      cnc_1:     { type: "CNC",         status: "active",    temp_c: 45,  power_w: 1200, vibration_hz: 12, position: { x: 10, y: 25 } },
+      cnc_1:     { type: "CNC",         status: "active",    temp_c: 45,  power_w: 1200, vibration_hz: 12, position: { x: 20, y: 50 } },
       printer_1: { type: "3D Printer",  status: "paused",    temp_c: 210, power_w: 340,  vibration_hz: 4,  position: { x: 60, y: 70 } },
-      lathe_1:   { type: "Lathe",       status: "active",    temp_c: 78,  power_w: 860,  vibration_hz: 30, position: { x: 85, y: 15 } },
-      robot_1:   { type: "Robotic Arm", status: "emergency", temp_c: 99,  power_w: 2400, vibration_hz: 55, position: { x: 45, y: 90 } },
+      lathe_1:   { type: "Lathe",       status: "active",    temp_c: 78,  power_w: 860,  vibration_hz: 30, position: { x: 70, y: 50 } },
+      robot_1:   { type: "Robotic Arm", status: "emergency", temp_c: 99,  power_w: 2400, vibration_hz: 55, position: { x: 45, y: 60 } },
     },
   };
 
-  const machines = data.machines || {};
-  const globalEmergency = data.global_emergency;
-
-  // Enforce a stable 4-slot order; fill missing slots with null
-  const SLOTS = ["cnc_1", "printer_1", "lathe_1", "robot_1"];
-  const entries = SLOTS.map((key) => [key, machines[key] || null]);
+  const machines        = data.machines ?? {};
+  const globalEmergency = Boolean(data.global_emergency);
+  const SLOTS           = ["cnc_1", "printer_1", "lathe_1", "robot_1"];
 
   return (
-    <div
-      className="relative w-full h-full p-4"
-      style={{ background: "#0f172a", fontFamily: "'Share Tech Mono', 'Courier New', monospace" }}
-    >
-      {/* Google Font (Share Tech Mono) injected once */}
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');`}</style>
+    <div style={{
+      // ── Layout root — caller must give this a defined height (e.g. height:100vh) ──
+      width: "100%", height: "100%", minHeight: 320,
+      display: "flex", flexDirection: "column",
+      padding: 14, boxSizing: "border-box",
+      background: "#0f172a",
+      fontFamily: "'Share Tech Mono','Courier New',monospace",
+      position: "relative", borderRadius: 10, overflow: "hidden",
+    }}>
+      <style>{`
+        @keyframes mg-bg{0%,100%{background-color:rgba(127,29,29,0.33)}50%{background-color:rgba(185,28,28,0.62)}}
+        @keyframes mg-border{0%,100%{box-shadow:0 0 16px #ef444450,inset 0 0 16px #ef444416}50%{box-shadow:0 0 36px #ef4444aa,inset 0 0 32px #ef444438}}
+        @keyframes mg-pulse{0%,100%{opacity:1}50%{opacity:0.2}}
+        @keyframes mg-ping{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.75);opacity:0.4}}
+        .mg-emerg{animation:mg-bg 1.2s ease-in-out infinite}
+        .mg-g-emerg{animation:mg-border 1s ease-in-out infinite}
+        .mg-pulse{animation:mg-pulse 1.4s ease-in-out infinite}
+        .mg-ping{animation:mg-ping 0.85s ease-in-out infinite}
+      `}</style>
 
       {/* Global emergency border */}
       {globalEmergency && (
-        <div className="pointer-events-none absolute inset-0 z-20 animate-pulse rounded-lg"
-          style={{ border: "3px solid #ef4444", boxShadow: "0 0 30px #ef444460, inset 0 0 30px #ef444420" }}
-        />
+        <div className="mg-g-emerg" style={{ position: "absolute", inset: 0, zIndex: 20, pointerEvents: "none", border: "3px solid #ef4444", borderRadius: 10 }} />
       )}
 
-      {/* Header bar */}
-      <div className="flex items-center justify-between mb-4">
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexShrink: 0 }}>
         <div>
-          <div className="text-xs tracking-[0.4em] uppercase text-slate-500 font-mono">
-            Industrial Control System
-          </div>
-          <div
-            className="text-lg font-bold tracking-[0.15em] uppercase"
-            style={{ color: "#00ffe5", textShadow: "0 0 10px #00ffe580" }}
-          >
-            Machine Grid — Floor A
-          </div>
+          <div style={{ fontSize: 9, letterSpacing: "0.35em", textTransform: "uppercase", color: "#475569" }}>Industrial Control System</div>
+          <div style={{ fontSize: 14, fontWeight: "bold", letterSpacing: "0.1em", textTransform: "uppercase", color: "#00ffe5" }}>Machine Grid — Floor A</div>
         </div>
-        <div className="flex items-center gap-2">
-          {globalEmergency ? (
-            <span className="flex items-center gap-1.5 text-red-400 text-xs font-mono animate-pulse">
-              <span className="inline-block w-2 h-2 rounded-full bg-red-400 animate-ping" />
-              GLOBAL EMERGENCY
-            </span>
-          ) : (
-            <span className="flex items-center gap-1.5 text-emerald-400 text-xs font-mono">
-              <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              ALL SYSTEMS NOMINAL
-            </span>
-          )}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+          <span className={globalEmergency ? "mg-ping" : "mg-pulse"} style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: globalEmergency ? "#f87171" : "#34d399" }} />
+          <span style={{ color: globalEmergency ? "#f87171" : "#34d399" }}>
+            {globalEmergency ? "GLOBAL EMERGENCY" : "ALL SYSTEMS NOMINAL"}
+          </span>
         </div>
       </div>
 
-      {/* 2×2 Grid */}
-      <div className="grid grid-cols-2 grid-rows-2 gap-3 h-[calc(100%-56px)]">
-        {entries.map(([key, machine]) =>
-          machine ? (
-            <MachineCard key={key} machineKey={key} data={machine} />
+      {/* 2×2 Grid — KEY: minHeight:0 + flex:1 + explicit gridTemplateRows */}
+      <div style={{
+        flex: 1, minHeight: 0,
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gridTemplateRows: "1fr 1fr",
+        gap: 10,
+      }}>
+        {SLOTS.map((key) => {
+          const m = machines[key];
+          return m ? (
+            <MachineCard key={key} machineKey={key} data={m} />
           ) : (
-            <div
-              key={key}
-              className="flex items-center justify-center rounded-lg text-slate-700 text-xs font-mono tracking-widest"
-              style={{ border: "1px dashed #1e293b", background: "rgba(15,23,42,0.5)" }}
-            >
+            <div key={key} style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              borderRadius: 8, border: "1px dashed #1e293b",
+              background: "rgba(15,23,42,0.4)", color: "#334155",
+              fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase",
+            }}>
               NO SIGNAL — {key.toUpperCase()}
             </div>
-          )
-        )}
+          );
+        })}
       </div>
     </div>
   );
