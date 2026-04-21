@@ -224,7 +224,7 @@ if st.session_state.tick == 0:
 with st.sidebar:
     st.header("🔑 API Configurations")
     api_key = st.text_input("Google AI Studio (Gemini) API Key", type="password", placeholder="AIzaSy...")
-    st.markdown("[Get API Key free](https://aistudio.google.com/app/apikey)")
+
     st.divider()
 
     st.header("⚙️ Simulation Controls")
