@@ -10,7 +10,7 @@ export default function App() {
 
   useEffect(() => {
     // Replace with your actual Render or local FastAPI URL
-    const ws = new WebSocket('wss://your-backend-url.render.com/ws');
+    const ws = new WebSocket('wss://encodexbackend.onrender.com//ws');
 
     ws.onopen = () => setWsStatus('Connected');
     ws.onclose = () => setWsStatus('Disconnected');
