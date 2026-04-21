@@ -5,11 +5,16 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-COPY Backend/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+# 1. Copy requirements from the current directory (.)
+COPY requirements.txt .
 
-COPY Backend/app.py /app/app.py
+# 2. Install dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 3. Copy everything else in the current folder (app.py, etc.)
+COPY . .
 
 EXPOSE 8080
 
-CMD ["streamlit", "run", "/app/app.py", "--server.port=8080", "--server.address=0.0.0.0", "--server.headless=true"]
+# 4. Use relative path for app.py
+CMD ["streamlit", "run", "app.py", "--server.port=8080", "--server.address=0.0.0.0", "--server.headless=true"]
