@@ -71,13 +71,15 @@ const ControlHub = ({ aiLogs = [], onAction }) => {
               return (
                 <div 
                   key={idx} 
-                  className={p-2 rounded-sm border-l-2 ${isHighSeverity ? 'border-orange-500 bg-orange-500/10' : 'border-gray-600 bg-gray-900/50'}}
+                  // FIXED SYNTAX BELOW: Added backticks and outer curly braces
+                  className={`p-2 rounded-sm border-l-2 ${isHighSeverity ? 'border-orange-500 bg-orange-500/10' : 'border-gray-600 bg-gray-900/50'}`}
                 >
                   <div className="flex justify-between items-center mb-1">
                     <span className="text-xs font-bold text-cyan-500">[{log.machine_id}]</span>
                     <span className="text-[10px] uppercase text-gray-500">{log.severity}</span>
                   </div>
-                  <div className={text-sm ${isHighSeverity ? 'text-orange-500 font-bold' : 'text-gray-300'}}>
+                  {/* FIXED SYNTAX BELOW: Added backticks and outer curly braces */}
+                  <div className={`text-sm ${isHighSeverity ? 'text-orange-500 font-bold' : 'text-gray-300'}`}>
                     &gt; {log.action_taken}
                   </div>
                   <div className="text-xs text-gray-500 mt-1 flex items-start gap-1">
@@ -103,6 +105,7 @@ const ControlHub = ({ aiLogs = [], onAction }) => {
               <div className="flex justify-between items-center mb-3">
                 <span className="font-bold text-cyan-600">{machine.id}</span>
                 <button
+                  type="button"
                   onClick={() => handleTrigger(machine.id)}
                   className="bg-red-900/30 text-red-500 hover:bg-red-800/50 hover:text-red-300 transition-colors px-3 py-1 text-xs font-bold rounded border border-red-900/50 uppercase active:scale-95"
                 >
